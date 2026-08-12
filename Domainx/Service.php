@@ -16,6 +16,7 @@ use FOSSBilling\InjectionAwareInterface;
 class Service implements InjectionAwareInterface
 {
     private const SECDNS_11 = 'urn:ietf:params:xml:ns:secDNS-1.1';
+    private const MAX_DNSSEC_RECORDS = 2;
 
     /**
      * This allowlist is intentionally code-owned. Adding a registrar requires a
@@ -28,6 +29,7 @@ class Service implements InjectionAwareInterface
             'name' => 'Namingo EPP Registrar',
             'features' => ['dnssec'],
             'dnssec_method' => 'updateDNSSEC',
+            'dnssec_info_method' => 'getDNSSEC',
         ],
     ];
 
@@ -43,12 +45,15 @@ class Service implements InjectionAwareInterface
         return $this->di;
     }
 
-    public function getCapabilities(\Model_ClientOrder $order, \Model_ServiceDomain $domain): array
-    {
+    public function getCapabilities(
+        \Model_ClientOrder $order,
+        \Model_ServiceDomain $domain
+    ): array {
         $domainName = $this->domainName($domain);
 
         try {
             $context = $this->registrarContext($order, $domain);
+            $records = $this->getDnssecRecords($context, $domain);
 
             return [
                 'domain' => $domainName,
@@ -57,13 +62,24 @@ class Service implements InjectionAwareInterface
                     'dnssec' => [
                         'available' => true,
                         'operations' => ['add', 'rem', 'addrem'],
-                        'record_format' => ['key_tag', 'algorithm', 'digest_type', 'digest'],
+                        'record_format' => [
+                            'key_tag',
+                            'algorithm',
+                            'digest_type',
+                            'digest',
+                        ],
+                        'records' => $records,
+                        'max_records' => self::MAX_DNSSEC_RECORDS,
+                        'can_add' => count($records) < self::MAX_DNSSEC_RECORDS,
                     ],
                 ],
                 'provider' => $context['definition']['name'],
             ];
         } catch (\Throwable $e) {
-            $this->logNotice('DomainX capabilities unavailable for %s: %s', [$domainName, $e->getMessage()]);
+            $this->logNotice(
+                'DomainX capabilities unavailable for %s: %s',
+                [$domainName, $e->getMessage()]
+            );
 
             return [
                 'domain' => $domainName,
@@ -75,6 +91,58 @@ class Service implements InjectionAwareInterface
                 ],
             ];
         }
+    }
+
+    /**
+     * @param array{
+     *     adapter: object,
+     *     config: array<string, mixed>,
+     *     definition: array<string, mixed>
+     * } $context
+     *
+     * @return array<int, array{
+     *     key_tag: int,
+     *     algorithm: int,
+     *     digest_type: int,
+     *     digest: string
+     * }>
+     */
+    private function getDnssecRecords(
+        array $context,
+        \Model_ServiceDomain $domain
+    ): array {
+        $registrarDomain = new \Registrar_Domain();
+        $registrarDomain->setSld((string) $domain->sld);
+        $registrarDomain->setTld((string) $domain->tld);
+
+        $adapter = $context['adapter'];
+        $method = (string) $context['definition']['dnssec_info_method'];
+
+        $records = $adapter->{$method}($registrarDomain);
+
+        if (!is_array($records)) {
+            throw new \FOSSBilling\Exception(
+                'The registrar returned invalid DNSSEC record data'
+            );
+        }
+
+        $normalized = [];
+
+        foreach ($records as $record) {
+            if (!is_array($record)) {
+                throw new \FOSSBilling\Exception(
+                    'The registrar returned an invalid DNSSEC record'
+                );
+            }
+
+            $normalized[] = $this->readRecord(
+                ['record' => $record],
+                'record',
+                false
+            );
+        }
+
+        return $normalized;
     }
 
     /**
@@ -94,6 +162,16 @@ class Service implements InjectionAwareInterface
         if (!in_array($command, ['add', 'rem', 'addrem'], true)) {
             throw new \FOSSBilling\InformationException(
                 'Unsupported DNSSEC command'
+            );
+        }
+
+        if (
+            $command === 'add'
+            && count($this->getDnssecRecords($context, $domain))
+                >= self::MAX_DNSSEC_RECORDS
+        ) {
+            throw new \FOSSBilling\InformationException(
+                'A maximum of two DNSSEC DS records is allowed'
             );
         }
 
@@ -245,12 +323,15 @@ class Service implements InjectionAwareInterface
             $order
         );
 
-        $method = (string) ($definition['dnssec_method'] ?? '');
+        foreach (['dnssec_method', 'dnssec_info_method'] as $methodKey) {
+            $method = (string) ($definition[$methodKey] ?? '');
 
-        if ($method === '' || !is_callable([$adapter, $method])) {
-            throw new \FOSSBilling\Exception(
-                'Installed registrar adapter does not support DNSSEC updates'
-            );
+            if ($method === '' || !is_callable([$adapter, $method])) {
+                throw new \FOSSBilling\Exception(
+                    'Installed registrar adapter is incompatible with DomainX. Missing public method: :method',
+                    [':method' => $method !== '' ? $method : $methodKey]
+                );
+            }
         }
 
         return [
