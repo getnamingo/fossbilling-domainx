@@ -4,7 +4,7 @@
   "name": "DomainX",
   "description": "Secure client access to allowlisted extended registrar operations.",
   "icon_url": "icon.svg",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Namingo",
   "author_url": "https://namingo.org/"
 }
