@@ -60,6 +60,58 @@ class Client extends \FOSSBilling\Api\AbstractApi
     }
 
     /**
+     * Get the current IP addresses of an in-bailiwick host.
+     * Requires order_id and hostname.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function glue_info($data): array
+    {
+        [$order, $domain] = $this->getActiveDomain($data);
+
+        return $this->getService()->getGlueHost($order, $domain, $data);
+    }
+
+    /**
+     * Create an in-bailiwick host with one IPv4 or IPv6 address.
+     * Requires order_id, hostname and ip_address.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function glue_create($data): array
+    {
+        [$order, $domain] = $this->getActiveDomain($data);
+
+        return $this->getService()->createGlueHost($order, $domain, $data);
+    }
+
+    /**
+     * Add, remove or replace one host address. Requires order_id and hostname,
+     * plus current_ip_address and/or new_ip_address.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function glue_update($data): array
+    {
+        [$order, $domain] = $this->getActiveDomain($data);
+
+        return $this->getService()->updateGlueHost($order, $domain, $data);
+    }
+
+    /**
+     * Delete a host object. The registry may reject hosts still linked to a domain.
+     * Requires order_id and hostname.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function glue_delete($data): array
+    {
+        [$order, $domain] = $this->getActiveDomain($data);
+
+        return $this->getService()->deleteGlueHost($order, $domain, $data);
+    }
+
+    /**
      * Use the same authorization gate as FOSSBilling's core Servicedomain client API.
      * An active order is FOSSBilling's canonical indication that the purchased
      * service has been paid for and provisioned.

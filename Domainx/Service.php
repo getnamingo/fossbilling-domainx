@@ -27,9 +27,14 @@ class Service implements InjectionAwareInterface
     private const SUPPORTED_ADAPTERS = [
         'namingo' => [
             'name' => 'Namingo EPP Registrar',
-            'features' => ['dnssec'],
+            'features' => ['dnssec', 'glue'],
             'dnssec_method' => 'updateDNSSEC',
             'dnssec_info_method' => 'getDNSSEC',
+            'glue_support_method' => 'supportsGlue',
+            'glue_info_method' => 'getGlueHost',
+            'glue_create_method' => 'createGlueHost',
+            'glue_update_method' => 'updateGlueHost',
+            'glue_delete_method' => 'deleteGlueHost',
         ],
         'switch' => [
             'name' => 'SWITCH (.ch/.li)',
@@ -188,47 +193,56 @@ class Service implements InjectionAwareInterface
         \Model_ServiceDomain $domain
     ): array {
         $domainName = $this->domainName($domain);
+        $features = [
+            'dnssec' => ['available' => false],
+            'glue' => ['available' => false],
+        ];
+        $provider = null;
 
         try {
-            $context = $this->registrarContext($order, $domain);
+            $context = $this->registrarContext($order, $domain, 'dnssec');
             $records = $this->getDnssecRecords($context, $domain);
-
-            return [
-                'domain' => $domainName,
+            $provider = $context['definition']['name'];
+            $features['dnssec'] = [
                 'available' => true,
-                'features' => [
-                    'dnssec' => [
-                        'available' => true,
-                        'operations' => ['add', 'rem', 'addrem'],
-                        'record_format' => [
-                            'key_tag',
-                            'algorithm',
-                            'digest_type',
-                            'digest',
-                        ],
-                        'records' => $records,
-                        'max_records' => self::MAX_DNSSEC_RECORDS,
-                        'can_add' => count($records) < self::MAX_DNSSEC_RECORDS,
-                    ],
-                ],
-                'provider' => $context['definition']['name'],
+                'operations' => ['add', 'rem', 'addrem'],
+                'record_format' => ['key_tag', 'algorithm', 'digest_type', 'digest'],
+                'records' => $records,
+                'max_records' => self::MAX_DNSSEC_RECORDS,
+                'can_add' => count($records) < self::MAX_DNSSEC_RECORDS,
             ];
         } catch (\Throwable $e) {
             $this->logNotice(
-                'DomainX capabilities unavailable for %s: %s',
+                'DomainX DNSSEC unavailable for %s: %s',
                 [$domainName, $e->getMessage()]
             );
-
-            return [
-                'domain' => $domainName,
-                'available' => false,
-                'features' => [
-                    'dnssec' => [
-                        'available' => false,
-                    ],
-                ],
-            ];
         }
+
+        try {
+            $context = $this->registrarContext($order, $domain, 'glue');
+            $provider = $context['definition']['name'];
+            $features['glue'] = [
+                'available' => true,
+                'operations' => ['info', 'create', 'update', 'delete'],
+                'address_format' => ['ip_address', 'current_ip_address', 'new_ip_address'],
+            ];
+        } catch (\Throwable $e) {
+            $this->logNotice(
+                'DomainX glue unavailable for %s: %s',
+                [$domainName, $e->getMessage()]
+            );
+        }
+
+        $result = [
+            'domain' => $domainName,
+            'available' => $features['dnssec']['available'] || $features['glue']['available'],
+            'features' => $features,
+        ];
+        if ($provider !== null) {
+            $result['provider'] = $provider;
+        }
+
+        return $result;
     }
 
     /**
@@ -424,13 +438,190 @@ class Service implements InjectionAwareInterface
     }
 
     /**
+     * Host objects belong only to the client's active domain. The adapter methods
+     * are a separate, opt-in contract implemented by the EPP registrar in step 2.
+     *
+     * @param array<string, mixed> $data
+     */
+    public function getGlueHost(\Model_ClientOrder $order, \Model_ServiceDomain $domain, array $data): array
+    {
+        $hostname = $this->glueHostname($domain, $data['hostname'] ?? null);
+        $context = $this->registrarContext($order, $domain, 'glue');
+        $result = $this->callGlue($context, $domain, 'glue_info_method', ['hostname' => $hostname]);
+        $addresses = $result['addr'] ?? null;
+        if (!is_array($addresses)) {
+            throw new \FOSSBilling\Exception('The registrar returned invalid glue address data');
+        }
+
+        $normalized = [];
+        foreach ($addresses as $address) {
+            $normalized[] = $this->glueAddress($address);
+        }
+
+        return [
+            'hostname' => $hostname,
+            'ip_addresses' => array_values(array_unique($normalized)),
+        ];
+    }
+
+    /** @param array<string, mixed> $data */
+    public function createGlueHost(\Model_ClientOrder $order, \Model_ServiceDomain $domain, array $data): array
+    {
+        $hostname = $this->glueHostname($domain, $data['hostname'] ?? null);
+        $address = $this->glueAddress($data['ip_address'] ?? null);
+        $context = $this->registrarContext($order, $domain, 'glue');
+
+        return $this->glueMutation($context, $domain, 'glue_create_method', 'create', [
+            'hostname' => $hostname,
+            'ipaddress' => $address,
+        ]);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function updateGlueHost(\Model_ClientOrder $order, \Model_ServiceDomain $domain, array $data): array
+    {
+        $hostname = $this->glueHostname($domain, $data['hostname'] ?? null);
+        $params = ['hostname' => $hostname];
+        if (isset($data['current_ip_address']) && $data['current_ip_address'] !== '') {
+            $params['currentipaddress'] = $this->glueAddress($data['current_ip_address']);
+        }
+        if (isset($data['new_ip_address']) && $data['new_ip_address'] !== '') {
+            $params['newipaddress'] = $this->glueAddress($data['new_ip_address']);
+        }
+        if (!isset($params['currentipaddress']) && !isset($params['newipaddress'])) {
+            throw new \FOSSBilling\InformationException('An IP address to add or remove is required');
+        }
+        if (isset($params['currentipaddress'], $params['newipaddress'])
+            && inet_pton($params['currentipaddress']) === inet_pton($params['newipaddress'])) {
+            throw new \FOSSBilling\InformationException('The current and new IP addresses are identical');
+        }
+
+        $context = $this->registrarContext($order, $domain, 'glue');
+
+        return $this->glueMutation($context, $domain, 'glue_update_method', 'update', $params);
+    }
+
+    /** @param array<string, mixed> $data */
+    public function deleteGlueHost(\Model_ClientOrder $order, \Model_ServiceDomain $domain, array $data): array
+    {
+        $hostname = $this->glueHostname($domain, $data['hostname'] ?? null);
+        $context = $this->registrarContext($order, $domain, 'glue');
+
+        return $this->glueMutation($context, $domain, 'glue_delete_method', 'delete', [
+            'hostname' => $hostname,
+        ]);
+    }
+
+    private function glueHostname(\Model_ServiceDomain $domain, mixed $value): string
+    {
+        if (!is_string($value) || trim($value) === '') {
+            throw new \FOSSBilling\InformationException('Glue hostname is required');
+        }
+
+        $hostname = strtolower(rtrim(trim($value), '.'));
+        if (function_exists('idn_to_ascii')) {
+            $hostname = idn_to_ascii($hostname, IDNA_DEFAULT, INTL_IDNA_VARIANT_UTS46) ?: '';
+        }
+        $hostname = strtolower($hostname);
+        $domainName = strtolower($this->asciiDomainName($domain));
+        $suffix = '.' . $domainName;
+        if (strlen($hostname) > 253 || !str_ends_with($hostname, $suffix)) {
+            throw new \FOSSBilling\InformationException('Glue hostname must be within this domain');
+        }
+        foreach (explode('.', $hostname) as $label) {
+            if (strlen($label) > 63 || !preg_match('/\A[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\z/D', $label)) {
+                throw new \FOSSBilling\InformationException('Glue hostname is invalid');
+            }
+        }
+
+        return $hostname;
+    }
+
+    private function glueAddress(mixed $value): string
+    {
+        if (!is_string($value) || filter_var($value, FILTER_VALIDATE_IP) === false) {
+            throw new \FOSSBilling\InformationException('A valid IPv4 or IPv6 address is required');
+        }
+
+        return strtolower($value);
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     * @param array<string, string> $params
+     */
+    private function glueMutation(array $context, \Model_ServiceDomain $domain, string $methodKey, string $command, array $params): array
+    {
+        $result = $this->callGlue($context, $domain, $methodKey, $params);
+        $this->logInfo('DomainX glue %s accepted for %s with EPP code %d', [
+            $command, $params['hostname'], (int) $result['code'],
+        ]);
+
+        return [
+            'success' => true,
+            'domain' => $this->domainName($domain),
+            'hostname' => $params['hostname'],
+            'command' => $command,
+            'code' => (int) $result['code'],
+            'message' => $this->responseMessage($result['msg'] ?? ''),
+        ];
+    }
+
+    /**
+     * @param array<string, mixed> $context
+     * @param array<string, string> $params
+     */
+    private function callGlue(array $context, \Model_ServiceDomain $domain, string $methodKey, array $params): array
+    {
+        $adapter = $context['adapter'];
+        $method = (string) $context['definition'][$methodKey];
+        try {
+            $result = $adapter->{$method}($this->registrarDomain($domain), $params);
+            if (!is_array($result)) {
+                throw new \FOSSBilling\Exception('The registrar returned an invalid glue response');
+            }
+            if (!empty($result['error'])) {
+                throw new \FOSSBilling\InformationException('The registry rejected the glue operation: :error', [
+                    ':error' => (string) $result['error'],
+                ]);
+            }
+            $code = (int) ($result['code'] ?? 0);
+            if ($code < 1000 || $code >= 2000) {
+                throw new \FOSSBilling\InformationException('The registry rejected the glue operation (:code): :message', [
+                    ':code' => $code,
+                    ':message' => $this->responseMessage($result['msg'] ?? ''),
+                ]);
+            }
+
+            return $result;
+        } catch (\FOSSBilling\Exception $e) {
+            throw $e;
+        } catch (\Registrar_Exception $e) {
+            $this->logNotice('DomainX glue rejected for %s: %s', [$params['hostname'], $e->getMessage()]);
+            throw new \FOSSBilling\InformationException('Glue operation failed: :error', [':error' => $e->getMessage()]);
+        } catch (\Throwable $e) {
+            $this->logNotice('DomainX glue failed for %s: %s', [$params['hostname'], $e->getMessage()]);
+            throw new \FOSSBilling\Exception('Glue operation failed. Please try again later.');
+        }
+    }
+
+    private function registrarDomain(\Model_ServiceDomain $domain): \Registrar_Domain
+    {
+        $registrarDomain = new \Registrar_Domain();
+        $registrarDomain->setSld((string) $domain->sld);
+        $registrarDomain->setTld((string) $domain->tld);
+
+        return $registrarDomain;
+    }
+
+    /**
      * Resolve an installed registrar through the core Servicedomain service. This
      * is where the existing tld_registrar.config JSON is read and supplied to the
      * same adapter used by normal FOSSBilling domain operations.
      *
      * @return array{adapter: object, config: array<string, mixed>, definition: array<string, mixed>}
      */
-    private function registrarContext(\Model_ClientOrder $order, \Model_ServiceDomain $domain): array
+    private function registrarContext(\Model_ClientOrder $order, \Model_ServiceDomain $domain, string $feature = 'dnssec'): array
     {
         if ((int) $domain->tld_registrar_id < 1) {
             throw new \FOSSBilling\Exception('Domain has no configured registrar');
@@ -443,8 +634,8 @@ class Service implements InjectionAwareInterface
 
         $registrarCode = strtolower(trim((string) $registrar->registrar));
         $definition = self::SUPPORTED_ADAPTERS[$registrarCode] ?? null;
-        if (!is_array($definition) || !in_array('dnssec', $definition['features'], true)) {
-            throw new \FOSSBilling\Exception('Domain registrar is not allowlisted for DNSSEC');
+        if (!is_array($definition) || !in_array($feature, $definition['features'], true)) {
+            throw new \FOSSBilling\Exception('Domain registrar is not allowlisted for :feature', [':feature' => $feature]);
         }
 
         $domainService = $this->di['mod_service']('servicedomain');
@@ -452,7 +643,7 @@ class Service implements InjectionAwareInterface
         $this->assertEppConfiguration($config);
 
         $profile = strtolower(trim((string) ($config['registry_profile'] ?? 'generic')));
-        if ($profile === 'generic' && !$this->hasSecDnsExtension($config)) {
+        if ($feature === 'dnssec' && $profile === 'generic' && !$this->hasSecDnsExtension($config)) {
             throw new \FOSSBilling\Exception('secDNS 1.1 is not enabled in the EPP login extensions');
         }
 
@@ -461,7 +652,10 @@ class Service implements InjectionAwareInterface
             $order
         );
 
-        foreach (['dnssec_method', 'dnssec_info_method'] as $methodKey) {
+        $methodKeys = $feature === 'glue'
+            ? ['glue_support_method', 'glue_info_method', 'glue_create_method', 'glue_update_method', 'glue_delete_method']
+            : ['dnssec_method', 'dnssec_info_method'];
+        foreach ($methodKeys as $methodKey) {
             $method = (string) ($definition[$methodKey] ?? '');
 
             if ($method === '' || !is_callable([$adapter, $method])) {
@@ -469,6 +663,14 @@ class Service implements InjectionAwareInterface
                     'Installed registrar adapter is incompatible with DomainX. Missing public method: :method',
                     [':method' => $method !== '' ? $method : $methodKey]
                 );
+            }
+        }
+
+        if ($feature === 'glue') {
+            $registrarDomain = $this->registrarDomain($domain);
+            $method = (string) $definition['glue_support_method'];
+            if ($adapter->{$method}($registrarDomain) !== true) {
+                throw new \FOSSBilling\Exception('Host objects are not supported for this TLD');
             }
         }
 
