@@ -9,7 +9,7 @@ Secure client access to allowlisted extended registrar operations.
 
 DomainX requires:
 
-- [Tide FOSSBilling Theme](https://github.com/getnamingo/tide) **v1.2.2 or newer**
+- [Tide FOSSBilling Theme](https://github.com/getnamingo/tide) **v1.2.5 or newer**
 - [Namingo FOSSBilling EPP Registrar](https://github.com/getnamingo/fossbilling-epp-registrar) **v1.2.2 or newer**
 - The Namingo EPP registrar must be configured and assigned to the domain being managed.
 - For DNSSEC, the `secDNS-1.1` EPP extension must be enabled in the registrar configuration.
