@@ -18,6 +18,10 @@ class Service implements InjectionAwareInterface
     private const SECDNS_11 = 'urn:ietf:params:xml:ns:secDNS-1.1';
     private const MAX_DNSSEC_RECORDS = 2;
 
+    // Code-owned controls; no admin settings. TTL is in seconds.
+    private const LOOKUP_CACHE_ENABLED = true;
+    private const LOOKUP_CACHE_TTL = 60;
+
     /**
      * This allowlist is intentionally code-owned. Adding a registrar requires a
      * reviewed mapping; merely installing an arbitrary adapter never exposes it.
@@ -186,6 +190,88 @@ class Service implements InjectionAwareInterface
     public function getDi(): ?\Pimple\Container
     {
         return $this->di;
+    }
+
+    /**
+     * Availability uses the core service, not the extended-operation allowlist.
+     * Errors are unknown (available = null), never mistaken for unavailable.
+     */
+    public function checkAll(string $sld): array
+    {
+        $sld = strtolower(trim($sld));
+        if (str_contains($sld, '.') || !$this->di['validator']->isSldValid($sld)) {
+            throw new \FOSSBilling\InformationException('Domain :domain is invalid', [':domain' => $sld]);
+        }
+        // Canonicalize IDNs so Unicode and punycode share lookup/cache results.
+        $sld = strtolower((string) idn_to_ascii($sld));
+
+        $service = $this->di['mod_service']('servicedomain');
+        $tlds = $this->di['db']->find('Tld', 'active = 1 AND allow_register = 1 ORDER BY tld ASC', []);
+        $cache = null;
+        if (self::LOOKUP_CACHE_ENABLED && self::LOOKUP_CACHE_TTL > 0 && isset($this->di['cache'])) {
+            try {
+                $pool = $this->di['cache'];
+                if ($pool instanceof \Psr\Cache\CacheItemPoolInterface) {
+                    $cache = $pool;
+                }
+            } catch (\Throwable) {
+                // Cache is optional; perform live checks if it is unavailable.
+            }
+        }
+
+        $results = [];
+        foreach ($tlds as $tld) {
+            $result = [
+                'sld' => $sld,
+                'tld' => (string) $tld->tld,
+                'domain' => $sld . $tld->tld,
+                'available' => null,
+                'cached' => false,
+                'error' => null,
+            ];
+
+            try {
+                $tld->tld = $service->normalizeTld((string) $tld->tld);
+                $result['tld'] = $tld->tld;
+                $result['domain'] = $sld . $tld->tld;
+                $item = null;
+                if ($cache !== null) {
+                    try {
+                        // Reassigning a TLD to another registrar invalidates its key.
+                        $key = 'domainx_check_all_' . sha1(implode('|', [
+                            $tld->id, $tld->tld_registrar_id, $result['domain'],
+                        ]));
+                        $item = $cache->getItem($key);
+                        if ($item->isHit() && is_bool($item->get())) {
+                            $result['available'] = $item->get();
+                            $result['cached'] = true;
+                        }
+                    } catch (\Throwable) {
+                        $item = null;
+                    }
+                }
+
+                if (!$result['cached']) {
+                    $result['available'] = (bool) $service->isDomainAvailable($tld, $sld);
+                    if ($item !== null) {
+                        try {
+                            $item->set($result['available'])->expiresAfter(self::LOOKUP_CACHE_TTL);
+                            $cache->save($item);
+                        } catch (\Throwable) {
+                            // A failed cache write must not discard a live result.
+                        }
+                    }
+                }
+            } catch (\Throwable $e) {
+                // Do not expose registrar responses/credentials to guests.
+                $result['error'] = __trans('Domain availability could not be determined.');
+                $this->logNotice('DomainX lookup failed for %s: %s', [$result['domain'], $e->getMessage()]);
+            }
+
+            $results[] = $result;
+        }
+
+        return ['sld' => $sld, 'results' => $results];
     }
 
     public function getCapabilities(
