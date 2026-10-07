@@ -16,10 +16,12 @@ use FOSSBilling\Validation\Api\RequiredParams;
 class Guest extends \FOSSBilling\Api\AbstractApi
 {
     /**
-     * Check an SLD against every active TLD that allows registration.
+     * Check an SLD against active registration TLDs, subject to the code-owned limit.
      * Uses each TLD's assigned registrar, like servicedomain/check.
      *
-     * @param array{sld: string} $data
+     * An optional TLD is always returned first and included within the limit.
+     *
+     * @param array{sld: string, tld?: string} $data
      */
     #[RequiredParams(['sld' => 'SLD is missing'])]
     public function check_all($data): array
@@ -31,6 +33,10 @@ class Guest extends \FOSSBilling\Api\AbstractApi
             throw new \FOSSBilling\InformationException('SLD is missing or invalid');
         }
 
-        return $this->getService()->checkAll($data['sld'], (string) $this->getIp());
+        if (isset($data['tld']) && !is_string($data['tld'])) {
+            throw new \FOSSBilling\InformationException('TLD is invalid.');
+        }
+
+        return $this->getService()->checkAll($data['sld'], (string) $this->getIp(), $data['tld'] ?? '');
     }
 }

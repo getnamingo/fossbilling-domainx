@@ -39,10 +39,10 @@ To upgrade, replace the existing module files with the latest version and open t
 
 ### Bulk availability (FOSSBilling 0.8.8)
 
-Call the public guest endpoint `domainx/check_all` with an SLD only:
+Call the public guest endpoint `domainx/check_all` with an SLD. Optionally pass `tld` to preserve the explicitly searched suffix:
 
 ```javascript
-FOSSBilling.api.guest.post('domainx/check_all', { sld: 'example' }, function (data) {
+FOSSBilling.api.guest.post('domainx/check_all', { sld: 'example', tld: '.com' }, function (data) {
     data.results.forEach(function (result) {
         // result.available: true = available, false = unavailable, null = check failed.
         // Use result.sld and result.tld with the existing pricing/cart form.
@@ -64,7 +64,8 @@ The result inside FOSSBilling's normal API response envelope has this shape:
 }
 ```
 
-- Checks every `active = 1 AND allow_register = 1` TLD in TLD order. An empty configuration returns `results: []`.
+- By default, checks every `active = 1 AND allow_register = 1` TLD in TLD order. An optional `tld` is normalized (including compound and IDN suffixes), selected before checking, and returned first regardless of availability. Unsupported, inactive or non-registerable requested suffixes return an unknown result without a registrar call. With no requested suffix, an empty configuration returns `results: []`.
+- `LOOKUP_RESULT_LIMIT = null` near the top of `Domainx/Service.php` means **no result limit**. Set it to a positive integer, for example `10`, to cap both returned results and selected TLDs **before cache reads or registrar calls**. The requested suffix counts toward that cap, including an unsupported-suffix result. Cached results also count; this is separate from the existing live-check rate budgets. There are no admin settings or per-request limit overrides.
 - Reuses `Servicedomain::isDomainAvailable`, including registrar configuration validation and test mode. The DNSSEC/glue adapter llowlist does not apply.
 - Uses the same `domain_lookup_ip` limiter as `servicedomain/check`, consuming **one lookup per batch**, including cache hits.
 - Additional code-owned live-check budgets prevent a batch from multiplying that public allowance: **600 registrar checks per IP per hour** and **600 registrar checks site-wide per minute**, using FOSSBilling's shared rate-limit cache. Cache hits consume neither budget. When a budget runs out, remaining uncached TLDs return `available: null` and a limit message; cache hits are still returned. A rate-limit storage failure prevents live checks. These controls use the same Symfony limiter mechanism as core FOSSBilling; server timeouts and web-server protections still matter for slow adapters and concurrent traffic.

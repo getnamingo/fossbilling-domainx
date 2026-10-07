@@ -19,6 +19,7 @@ class Service implements InjectionAwareInterface
     private const MAX_DNSSEC_RECORDS = 2;
 
     // Code-owned controls; no admin settings. TTL is in seconds.
+    private const LOOKUP_RESULT_LIMIT = null; // null = no limit; e.g. 10 caps results/checks, including the requested TLD.
     private const LOOKUP_CACHE_ENABLED = true;
     private const LOOKUP_CACHE_TTL = 60;
     private const LOOKUP_LIVE_LIMIT_PER_IP = 600; // Per hour, across batches.
@@ -198,7 +199,7 @@ class Service implements InjectionAwareInterface
      * Availability uses the core service, not the extended-operation allowlist.
      * Errors are unknown (available = null), never mistaken for unavailable.
      */
-    public function checkAll(string $sld, string $ip = ''): array
+    public function checkAll(string $sld, string $ip = '', string $requestedTld = ''): array
     {
         if (strlen($sld) > 255) {
             throw new \FOSSBilling\InformationException('Domain name is invalid.');
@@ -216,6 +217,44 @@ class Service implements InjectionAwareInterface
 
         $service = $this->di['mod_service']('servicedomain');
         $tlds = $this->di['db']->find('Tld', 'active = 1 AND allow_register = 1 ORDER BY tld ASC', []);
+        // Prioritize the requested suffix before any cache/registrar checks.
+        $results = [];
+        if ($requestedTld !== '') {
+            if (strlen($requestedTld) > 255) {
+                throw new \FOSSBilling\InformationException('TLD is invalid.');
+            }
+            $requestedTld = $service->normalizeTld($requestedTld);
+            $requested = null;
+            foreach ($tlds as $index => $tld) {
+                try {
+                    if ($service->normalizeTld((string) $tld->tld) === $requestedTld) {
+                        $requested = $tld;
+                        unset($tlds[$index]);
+                        break;
+                    }
+                } catch (\Throwable) {
+                    // Malformed configured rows retain the existing per-row error handling.
+                }
+            }
+            if ($requested !== null) {
+                array_unshift($tlds, $requested);
+            } else {
+                // Never send inactive, non-registerable or unknown suffixes to a registrar.
+                $results[] = [
+                    'sld' => $sld,
+                    'tld' => $requestedTld,
+                    'domain' => $sld . $requestedTld,
+                    'available' => null,
+                    'cached' => false,
+                    'error' => __trans('This TLD is not available for registration.'),
+                ];
+            }
+        }
+        if (self::LOOKUP_RESULT_LIMIT !== null) {
+            // A positive cap includes the requested result, even if it is unsupported.
+            $tlds = array_slice($tlds, 0, max(1, self::LOOKUP_RESULT_LIMIT) - count($results));
+        }
+
         $cache = null;
         if (self::LOOKUP_CACHE_ENABLED && self::LOOKUP_CACHE_TTL > 0 && isset($this->di['cache'])) {
             try {
@@ -228,7 +267,6 @@ class Service implements InjectionAwareInterface
             }
         }
 
-        $results = [];
         $ipLimiter = null;
         $globalLimiter = null;
         $budgetExhausted = false;
