@@ -31,6 +31,6 @@ class Guest extends \FOSSBilling\Api\AbstractApi
             throw new \FOSSBilling\InformationException('SLD is missing or invalid');
         }
 
-        return $this->getService()->checkAll($data['sld']);
+        return $this->getService()->checkAll($data['sld'], (string) $this->getIp());
     }
 }

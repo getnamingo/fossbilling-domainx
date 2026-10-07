@@ -21,6 +21,8 @@ class Service implements InjectionAwareInterface
     // Code-owned controls; no admin settings. TTL is in seconds.
     private const LOOKUP_CACHE_ENABLED = true;
     private const LOOKUP_CACHE_TTL = 60;
+    private const LOOKUP_LIVE_LIMIT_PER_IP = 600; // Per hour, across batches.
+    private const LOOKUP_LIVE_LIMIT_GLOBAL = 600; // Per minute, across visitors.
 
     /**
      * This allowlist is intentionally code-owned. Adding a registrar requires a
@@ -196,14 +198,21 @@ class Service implements InjectionAwareInterface
      * Availability uses the core service, not the extended-operation allowlist.
      * Errors are unknown (available = null), never mistaken for unavailable.
      */
-    public function checkAll(string $sld): array
+    public function checkAll(string $sld, string $ip = ''): array
     {
+        if (strlen($sld) > 255) {
+            throw new \FOSSBilling\InformationException('Domain name is invalid.');
+        }
         $sld = strtolower(trim($sld));
         if (str_contains($sld, '.') || !$this->di['validator']->isSldValid($sld)) {
-            throw new \FOSSBilling\InformationException('Domain :domain is invalid', [':domain' => $sld]);
+            throw new \FOSSBilling\InformationException('Domain name is invalid.');
         }
         // Canonicalize IDNs so Unicode and punycode share lookup/cache results.
-        $sld = strtolower((string) idn_to_ascii($sld));
+        $ascii = idn_to_ascii($sld, IDNA_USE_STD3_RULES, INTL_IDNA_VARIANT_UTS46);
+        if ($ascii === false || !preg_match('/^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/i', $ascii)) {
+            throw new \FOSSBilling\InformationException('Domain name is invalid.');
+        }
+        $sld = strtolower($ascii);
 
         $service = $this->di['mod_service']('servicedomain');
         $tlds = $this->di['db']->find('Tld', 'active = 1 AND allow_register = 1 ORDER BY tld ASC', []);
@@ -220,6 +229,9 @@ class Service implements InjectionAwareInterface
         }
 
         $results = [];
+        $ipLimiter = null;
+        $globalLimiter = null;
+        $budgetExhausted = false;
         foreach ($tlds as $tld) {
             $result = [
                 'sld' => $sld,
@@ -252,20 +264,63 @@ class Service implements InjectionAwareInterface
                 }
 
                 if (!$result['cached']) {
-                    $result['available'] = (bool) $service->isDomainAvailable($tld, $sld);
-                    if ($item !== null) {
-                        try {
-                            $item->set($result['available'])->expiresAfter(self::LOOKUP_CACHE_TTL);
-                            $cache->save($item);
-                        } catch (\Throwable) {
-                            // A failed cache write must not discard a live result.
+                    // Bound the backend work independently of the one-token batch
+                    // allowance. Cached answers do not consume live-check budgets.
+                    if ($ipLimiter === null) {
+                        $rateCache = $this->di['rate_limit_cache'] ?? null;
+                        if (!$rateCache instanceof \Psr\Cache\CacheItemPoolInterface) {
+                            throw new \LogicException('Rate-limit storage is unavailable');
+                        }
+                        $storage = new class($rateCache) extends \Symfony\Component\RateLimiter\Storage\CacheStorage {
+                            public function __construct(private \Psr\Cache\CacheItemPoolInterface $counterPool)
+                            {
+                                parent::__construct($counterPool);
+                            }
+
+                            public function save(\Symfony\Component\RateLimiter\LimiterStateInterface $state): void
+                            {
+                                $counter = $this->counterPool->getItem(sha1($state->getId()));
+                                $counter->set($state);
+                                $counter->expiresAfter($state->getExpirationTime());
+                                if (!$this->counterPool->save($counter)) {
+                                    throw new \RuntimeException('Rate-limit counter could not be saved');
+                                }
+                            }
+                        };
+                        $ipFactory = new \Symfony\Component\RateLimiter\RateLimiterFactory([
+                            'id' => 'domainx_lookup_live_ip',
+                            'policy' => 'sliding_window',
+                            'limit' => self::LOOKUP_LIVE_LIMIT_PER_IP,
+                            'interval' => '1 hour',
+                        ], $storage);
+                        $globalFactory = new \Symfony\Component\RateLimiter\RateLimiterFactory([
+                            'id' => 'domainx_lookup_live_global',
+                            'policy' => 'sliding_window',
+                            'limit' => self::LOOKUP_LIVE_LIMIT_GLOBAL,
+                            'interval' => '1 minute',
+                        ], $storage);
+                        $ipLimiter = $ipFactory->create(hash('sha256', $ip));
+                        $globalLimiter = $globalFactory->create('site');
+                    }
+                    if ($budgetExhausted || !$ipLimiter->consume()->isAccepted() || !$globalLimiter->consume()->isAccepted()) {
+                        $budgetExhausted = true;
+                        $result['error'] = __trans('Domain lookup limit reached. Please try again later.');
+                    } else {
+                        $result['available'] = (bool) $service->isDomainAvailable($tld, $sld);
+                        if ($item !== null) {
+                            try {
+                                $item->set($result['available'])->expiresAfter(self::LOOKUP_CACHE_TTL);
+                                $cache->save($item);
+                            } catch (\Throwable) {
+                                // A failed cache write must not discard a live result.
+                            }
                         }
                     }
                 }
             } catch (\Throwable $e) {
                 // Do not expose registrar responses/credentials to guests.
                 $result['error'] = __trans('Domain availability could not be determined.');
-                $this->logNotice('DomainX lookup failed for %s: %s', [$result['domain'], $e->getMessage()]);
+                $this->logNotice('DomainX lookup failed for %s (%s)', [$result['domain'], get_class($e)]);
             }
 
             $results[] = $result;
