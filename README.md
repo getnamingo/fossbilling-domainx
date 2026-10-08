@@ -9,8 +9,8 @@ Secure client access to allowlisted extended registrar operations, plus bulk dom
 
 DomainX requires:
 
-- [Tide FOSSBilling Theme](https://github.com/getnamingo/tide) **v1.2.10 or newer**
-- [Namingo FOSSBilling EPP Registrar](https://github.com/getnamingo/fossbilling-epp-registrar) **v1.2.3 or newer**
+- [Tide FOSSBilling Theme](https://github.com/getnamingo/tide) **v1.2.11 or newer**
+- [Namingo FOSSBilling EPP Registrar](https://github.com/getnamingo/fossbilling-epp-registrar) **v1.2.4 or newer**
 - The Namingo EPP registrar must be configured and assigned to the domain being managed.
 - For DNSSEC, the `secDNS-1.1` EPP extension must be enabled in the registrar configuration.
 - For glue hostname management, the registrar must use EPP host objects (hostObj). The generic EPP profile must also include urn:ietf:params:xml:ns:host-1.0 in its login objects.
