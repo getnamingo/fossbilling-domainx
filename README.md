@@ -80,16 +80,6 @@ DomainX adds allowlisted extended registrar operations to active and paid domain
 
 DNSSEC DS record management and glue hostname (EPP host object) management are supported through the Namingo EPP registrar. Tide shows each set of controls only when DomainX reports that feature as available for the domain.
 
-### DNSSEC algorithms and digests
-
-DomainX accepts DS records for algorithms 17 (SM2SM3) and 18 (ML-DSA-44) through the existing numeric algorithm field, including add, remove, and replacement operations. Use the updated Tide theme to select these algorithms and digest type 6 (SM3) in the client form.
-
-Digest types 2 (SHA-256), 4 (SHA-384), and 6 (SM3) require exactly 64, 96, and 64 hexadecimal characters respectively. Whitespace is removed and hexadecimal letters are normalized to uppercase. Existing integer ranges, generic digest validation, adapter allowlisting, ownership checks, and record limits remain in place; the target registry decides which algorithms and digests it supports.
-
-DomainX forwards DS records supplied by the DNS provider. It does not generate DNSKEYs, signatures, or digests and needs no additional SM3/OpenSSL support or database migration for these values.
-
-Run the standalone DNSSEC validation and adapter forwarding checks with `php tests/dnssec.php`.
-
 ## License
 
 Apache License 2.0
