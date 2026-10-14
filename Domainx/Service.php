@@ -931,6 +931,16 @@ class Service implements InjectionAwareInterface
             );
         }
 
+        // DS records are forwarded, not hashed here. Keep the numeric algorithm
+        // range (including SM2SM3/17 and ML-DSA-44/18) and registry policy intact.
+        $digestLengths = [2 => 64, 4 => 96, 6 => 64]; // SHA-256, SHA-384, SM3
+        if (isset($digestLengths[$digestType]) && strlen($digest) !== $digestLengths[$digestType]) {
+            throw new \FOSSBilling\InformationException(
+                'DNSSEC digest type :type requires exactly :length hexadecimal characters',
+                [':type' => $digestType, ':length' => $digestLengths[$digestType]],
+            );
+        }
+
         return [
             'key_tag' => $keyTag,
             'algorithm' => $algorithm,
