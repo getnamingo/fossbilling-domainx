@@ -46,7 +46,6 @@ class Client implements \FOSSBilling\InjectionAwareInterface
             'price_registration' => ['label' => 'Register', 'annual' => true, 'allow' => 'allow_register'],
             'price_renew' => ['label' => 'Renew', 'annual' => true, 'allow' => 'allow_renew'],
             'price_transfer' => ['label' => 'Transfer', 'annual' => false, 'allow' => 'allow_transfer'],
-            'price_restore' => ['label' => 'Restore', 'annual' => false, 'allow' => 'allow_restore'],
         ];
 
         foreach ($tlds as $tld) {
