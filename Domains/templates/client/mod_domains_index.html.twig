@@ -3,10 +3,18 @@
 {# This route is deliberately public, including when Huraga's login-only option is on. #}
 {% set settings = settings|default({})|merge({'require_login': false}) %}
 
-{% block meta_title %}{{ 'Domain prices'|trans }}{% endblock %}
-{% block meta_description %}{{ 'Compare registration, renewal and transfer prices for all available domain extensions.'|trans }}{% endblock %}
+{% block meta_title %}{{ 'Domain Pricing'|trans }}{% endblock %}
+{% block meta_description %}{{ 'Compare registration, renewal, transfer, and restoration prices across all available domain extensions.'|trans }}{% endblock %}
 {% block breadcrumb %}
-    <li class="breadcrumb-item active" aria-current="page">{{ 'Domain prices'|trans }}</li>
+    <li class="breadcrumb-item active" aria-current="page">{{ 'Domain Pricing'|trans }}</li>
+{% endblock %}
+
+{% block page_header %}
+    {{ 'Domain Pricing'|trans }}
+{% endblock %}
+
+{% block page_description %}
+    {{ 'Compare registration, renewal, transfer, and restoration prices across all available domain extensions.'|trans }}
 {% endblock %}
 
 {% block head %}
@@ -23,18 +31,6 @@
 
 {% block content %}
 <div class="domain-prices" id="domain-prices">
-    <div class="card border-0 shadow-sm mb-4 domain-prices-hero">
-        <div class="card-body p-4">
-            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
-                <div>
-                    <h1 class="mb-2">{{ 'Domain prices'|trans }}</h1>
-                    <p class="text-muted mb-0">{{ 'Find your extension. Compare the costs.'|trans }}</p>
-                </div>
-                <span class="badge bg-primary text-white px-3 py-2">{{ currency.code }}</span>
-            </div>
-        </div>
-    </div>
-
     <div class="card shadow-sm">
         <div class="card-body border-bottom">
             <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">

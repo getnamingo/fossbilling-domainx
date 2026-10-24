@@ -1,10 +1,17 @@
 <?php
-/**
- * Namingo DomainX module for FOSSBilling (https://fossbilling.org/)
+
+/*
+ * Namingo DomainX
  *
- * Written in 2026 by Namingo Team (https://namingo.org)
+ * Copyright (c) 2023-2026 Taras Kondratyuk
+ * Copyright (c) 2025-2026 Namingo contributors
+ * Copyright (c) 2026 Terbora Ltd.
  *
- * @license Apache-2.0
+ * Licensed under the Apache License, Version 2.0.
+ * May contain portions of FOSSBilling sample modules, also licensed under Apache-2.0.
+ * See the LICENSE file for the full license text.
+ *
+ * SPDX-License-Identifier: Apache-2.0
  */
 
 declare(strict_types=1);

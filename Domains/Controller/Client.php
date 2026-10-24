@@ -1,5 +1,19 @@
 <?php
 
+/*
+ * Namingo Domain Prices
+ *
+ * Copyright (c) 2023-2026 Taras Kondratyuk
+ * Copyright (c) 2025-2026 Namingo contributors
+ * Copyright (c) 2026 Terbora Ltd.
+ *
+ * Licensed under the Apache License, Version 2.0.
+ * May contain portions of FOSSBilling sample modules, also licensed under Apache-2.0.
+ * See the LICENSE file for the full license text.
+ *
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 declare(strict_types=1);
 
 namespace Box\Mod\Domains\Controller;
@@ -48,7 +62,7 @@ class Client implements \FOSSBilling\InjectionAwareInterface
             }
         }
 
-        return $app->render('mod_domainprices_index', [
+        return $app->render('mod_domains_index', [
             'tlds' => $tlds,
             'price_columns' => $columns,
             'currency' => $this->di['api_guest']->cart_get_currency(),
