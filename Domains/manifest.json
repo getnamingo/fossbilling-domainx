@@ -1,0 +1,11 @@
+{
+    "id": "domains",
+    "type": "mod",
+    "name": "Domain Prices",
+    "author": "Domain Prices contributors",
+    "description": "One public page listing prices for every enabled TLD, using FOSSBilling's built-in guest API and client theme.",
+    "icon_url": "icon.svg",
+    "version": "1.0.1",
+    "minimum_fossbilling_version": "0.8.0",
+    "license": "MIT"
+}

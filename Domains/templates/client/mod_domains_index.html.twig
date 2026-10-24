@@ -1,0 +1,124 @@
+{% extends 'layout_default.html.twig' %}
+{% set active_menu = 'domains' %}
+{# This route is deliberately public, including when Huraga's login-only option is on. #}
+{% set settings = settings|default({})|merge({'require_login': false}) %}
+
+{% block meta_title %}{{ 'Domain prices'|trans }}{% endblock %}
+{% block meta_description %}{{ 'Compare registration, renewal and transfer prices for all available domain extensions.'|trans }}{% endblock %}
+{% block breadcrumb %}
+    <li class="breadcrumb-item active" aria-current="page">{{ 'Domain prices'|trans }}</li>
+{% endblock %}
+
+{% block head %}
+    {{ parent() }}
+    <style>
+        .domain-prices .domain-prices-hero { background: linear-gradient(120deg, rgba(32,107,196,.12), rgba(32,107,196,.02)); }
+        .domain-prices .domain-prices-table { font-variant-numeric: tabular-nums; }
+        .domain-prices .domain-prices-table th, .domain-prices .domain-prices-table td { padding: 1rem 1.25rem; vertical-align: middle; }
+        .domain-prices .domain-prices-table thead th { white-space: nowrap; }
+        .domain-prices .domain-prices-table tbody th { font-size: 1.05rem; }
+        .domain-prices .domain-prices-search { max-width: 23rem; }
+    </style>
+{% endblock %}
+
+{% block content %}
+<div class="domain-prices" id="domain-prices">
+    <div class="card border-0 shadow-sm mb-4 domain-prices-hero">
+        <div class="card-body p-4">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                <div>
+                    <h1 class="mb-2">{{ 'Domain prices'|trans }}</h1>
+                    <p class="text-muted mb-0">{{ 'Find your extension. Compare the costs.'|trans }}</p>
+                </div>
+                <span class="badge bg-primary text-white px-3 py-2">{{ currency.code }}</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="card shadow-sm">
+        <div class="card-body border-bottom">
+            <div class="d-flex flex-wrap align-items-center justify-content-between gap-3">
+                <div class="text-muted" aria-live="polite" role="status">
+                    <strong class="text-body" data-price-count>{{ tlds|length }}</strong> / {{ tlds|length }} {{ 'extensions'|trans }}
+                </div>
+                <div class="domain-prices-search w-100">
+                    <label for="domain-prices-search" class="visually-hidden">{{ 'Search domain extensions'|trans }}</label>
+                    <input type="search" class="form-control" id="domain-prices-search" placeholder="{{ 'Search extensions, e.g. .com'|trans }}" autocomplete="off" aria-controls="domain-prices-table">
+                </div>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover mb-0 domain-prices-table" id="domain-prices-table">
+                <caption class="visually-hidden">{{ 'Prices for all enabled domain extensions'|trans }}</caption>
+                <thead class="table-light">
+                    <tr>
+                        <th scope="col">{{ 'Extension'|trans }}</th>
+                        {% for column in price_columns %}
+                            <th scope="col" class="text-end">
+                                {{ column.label|trans }}
+                                {% if column.annual %}<span class="small text-muted fw-normal d-block">{{ 'per year'|trans }}</span>{% endif %}
+                            </th>
+                        {% endfor %}
+                        <th scope="col" class="text-end">{{ 'Registration term'|trans }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for tld in tlds %}
+                    <tr data-price-row data-tld="{{ tld.tld|lower }}">
+                        <th scope="row" class="text-nowrap">{{ tld.tld }}</th>
+                        {% for field, column in price_columns %}
+                            <td class="text-end text-nowrap">
+                                {% if tld[column.allow] is defined and not tld[column.allow] %}
+                                    <span class="text-muted small">{{ 'Not offered'|trans }}</span>
+                                {% elseif tld[field] is defined and tld[field] is not null and tld[field] is not same as('') %}
+                                    {{ (tld[field] * currency.conversion_rate)|format_currency(currency.code) }}
+                                {% else %}
+                                    <span class="text-muted small">{{ 'Not available'|trans }}</span>
+                                {% endif %}
+                            </td>
+                        {% endfor %}
+                        <td class="text-end text-muted small">
+                            {% if tld.allow_register is defined and not tld.allow_register %}
+                                &mdash;
+                            {% elseif tld.periods|default([]) is not empty %}
+                                {{ tld.periods|join(', ') }} {{ 'year(s)'|trans }}
+                            {% else %}
+                                {{ 'Minimum'|trans }} {{ tld.min_years|default(1, true) }} {{ 'year(s)'|trans }}
+                            {% endif %}
+                        </td>
+                    </tr>
+                {% endfor %}
+                    <tr data-prices-empty {% if tlds is not empty %}hidden{% endif %}>
+                        <td colspan="{{ price_columns|length + 2 }}" class="text-center text-muted py-5">
+                            {% if tlds is empty %}{{ 'No domain extensions are currently available.'|trans }}{% else %}{{ 'No matching extensions.'|trans }}{% endif %}
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+        <div class="card-footer text-muted small">
+            <p class="mb-1">{{ 'Registration and renewal prices are per year. For registration, multiply the rate by the selected number of years; minimum terms apply. Transfer and restore prices, when available, are per operation.'|trans }}</p>
+            <p class="mb-0">{{ 'Listed prices exclude applicable taxes and checkout discounts. Premium domain prices may differ. Not available means no public price has been configured.'|trans }}</p>
+        </div>
+    </div>
+</div>
+<script>
+(() => {
+    const root = document.getElementById('domain-prices');
+    const search = root.querySelector('#domain-prices-search');
+    const rows = Array.from(root.querySelectorAll('[data-price-row]'));
+    const count = root.querySelector('[data-price-count]');
+    const empty = root.querySelector('[data-prices-empty]');
+    search.addEventListener('input', () => {
+        const query = search.value.trim().toLowerCase();
+        let visible = 0;
+        rows.forEach(row => {
+            row.hidden = !row.dataset.tld.includes(query);
+            if (!row.hidden) visible++;
+        });
+        count.textContent = String(visible);
+        empty.hidden = visible !== 0;
+    });
+})();
+</script>
+{% endblock %}
