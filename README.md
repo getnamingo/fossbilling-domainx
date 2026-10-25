@@ -9,8 +9,8 @@ Secure client access to allowlisted extended registrar operations, plus bulk dom
 
 DomainX requires:
 
-- [Tide FOSSBilling Theme](https://github.com/getnamingo/tide) **v1.2.12 or newer**
-- [Namingo FOSSBilling EPP Registrar](https://github.com/getnamingo/fossbilling-epp-registrar) **v1.2.4 or newer**
+- [Tide FOSSBilling Theme](https://github.com/getnamingo/tide) **v1.2.14 or newer**
+- [Namingo FOSSBilling EPP Registrar](https://github.com/getnamingo/fossbilling-epp-registrar) **v1.2.6 or newer**
 - The Namingo EPP registrar must be configured and assigned to the domain being managed.
 - For DNSSEC, the `secDNS-1.1` EPP extension must be enabled in the registrar configuration.
 - For glue hostname management, the registrar must use EPP host objects (hostObj). The generic EPP profile must also include urn:ietf:params:xml:ns:host-1.0 in its login objects.
@@ -24,10 +24,11 @@ Install and configure the required EPP registrar and Tide theme first.
 ```bash
 git clone https://github.com/getnamingo/fossbilling-domainx
 mv fossbilling-domainx/Domainx /var/www/modules/
+mv fossbilling-domainx/Domains /var/www/modules/
 ```
 
-- Go to Extensions > Overview in the admin panel and activate "DomainX".
-- Ensure Tide v1.2.10 or newer is the active client theme.
+- Go to Extensions > Overview in the admin panel and activate "DomainX" and "Domain Prices".
+- Ensure Tide v1.2.14 or newer is the active client theme.
 
 ## Upgrade
 
