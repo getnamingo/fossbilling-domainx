@@ -3,13 +3,13 @@
 Secure client access to allowlisted extended registrar operations, plus bulk domain availability checks.
 
 > [!IMPORTANT]
-> The DNSSEC/glue integration requires the supported theme and registrar adapters described below. The FOSSBilling 0.8.8 bulk availability API works with any theme and uses each TLD's assigned registrar adapter.
+> The DNSSEC/glue integration requires the supported theme and registrar adapters described below. The FOSSBilling 0.8.9 bulk availability API works with any theme and uses each TLD's assigned registrar adapter.
 
 ## Requirements
 
 DomainX requires:
 
-- [Tide FOSSBilling Theme](https://github.com/getnamingo/tide) **v1.2.14 or newer**
+- [Tide FOSSBilling Theme](https://github.com/getnamingo/tide) **v1.2.15 or newer**
 - [Namingo FOSSBilling EPP Registrar](https://github.com/getnamingo/fossbilling-epp-registrar) **v1.2.6 or newer**
 - The Namingo EPP registrar must be configured and assigned to the domain being managed.
 - For DNSSEC, the `secDNS-1.1` EPP extension must be enabled in the registrar configuration.
@@ -28,7 +28,7 @@ mv fossbilling-domainx/Domains /var/www/modules/
 ```
 
 - Go to Extensions > Overview in the admin panel and activate "DomainX" and "Domain Prices".
-- Ensure Tide v1.2.14 or newer is the active client theme.
+- Ensure Tide v1.2.15 or newer is the active client theme.
 
 ## Upgrade
 
@@ -38,7 +38,7 @@ To upgrade, replace the existing module files with the latest version and open t
 
 ## Usage
 
-### Bulk availability (FOSSBilling 0.8.8)
+### Bulk availability (FOSSBilling 0.8.9)
 
 Call the public guest endpoint `domainx/check_all` with an SLD. Optionally pass `tld` to preserve the explicitly searched suffix:
 
