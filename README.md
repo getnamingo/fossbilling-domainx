@@ -38,6 +38,18 @@ To upgrade, replace the existing module files with the latest version and open t
 
 ## Usage
 
+### Search result presentation
+
+Open **Extensions > DomainX** in the admin panel (staff require the DomainX **Manage settings** permission).
+
+- Reorder active TLDs enabled for registration using the drag handles or up/down buttons, then save. Reset order restores alphabetical order without changing highlights; save to apply it.
+- Set each TLD's optional **Hot** or **Top** badge. Badges are visual only and do not change ordering, availability, or pricing.
+- The explicitly searched suffix still appears first. Other results follow the saved order; newly enabled TLDs are appended alphabetically. Inactive and non-registerable TLDs are excluded.
+- Configure the homepage and domain order price strips independently: alphabetical or search result order, and 0–100 TLDs per strip. Defaults are alphabetical and five TLDs. Zero keeps the All extensions link without prices.
+- Preferences use FOSSBilling's module configuration storage; no database migration is required. Ordering applies before the existing lookup result limit and registrar checks. Cached availability does not cache order or highlights.
+
+The public `domainx/presentation` endpoint returns only the presentation preferences, including a `positions` map and the `homepage_strip_order`, `homepage_strip_count`, `order_strip_order`, and `order_strip_count` fields. Bulk results include `highlight` (`hot`, `top`, or `null`). Install DomainX 1.2.0 or newer before using the matching Tide integration. Tide retains its existing alphabetical five-TLD strips when DomainX is not installed or is disabled.
+
 ### Bulk availability (FOSSBilling 0.8.9)
 
 Call the public guest endpoint `domainx/check_all` with an SLD. Optionally pass `tld` to preserve the explicitly searched suffix:
@@ -65,7 +77,7 @@ The result inside FOSSBilling's normal API response envelope has this shape:
 }
 ```
 
-- By default, checks every `active = 1 AND allow_register = 1` TLD in TLD order. An optional `tld` is normalized (including compound and IDN suffixes), selected before checking, and returned first regardless of availability. Unsupported, inactive or non-registerable requested suffixes return an unknown result without a registrar call. With no requested suffix, an empty configuration returns `results: []`.
+- By default, checks every `active = 1 AND allow_register = 1` TLD alphabetically, or in the search order saved in DomainX. An optional `tld` is normalized (including compound and IDN suffixes), selected before checking, and returned first regardless of availability. Unsupported, inactive or non-registerable requested suffixes return an unknown result without a registrar call. With no requested suffix, an empty configuration returns `results: []`.
 - `LOOKUP_RESULT_LIMIT = null` near the top of `Domainx/Service.php` means **no result limit**. Set it to a positive integer, for example `10`, to cap both returned results and selected TLDs **before cache reads or registrar calls**. The requested suffix counts toward that cap, including an unsupported-suffix result. Cached results also count; this is separate from the existing live-check rate budgets. There are no admin settings or per-request limit overrides.
 - Reuses `Servicedomain::isDomainAvailable`, including registrar configuration validation and test mode. The DNSSEC/glue adapter llowlist does not apply.
 - Uses the same `domain_lookup_ip` limiter as `servicedomain/check`, consuming **one lookup per batch**, including cache hits.

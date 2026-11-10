@@ -22,6 +22,12 @@ use FOSSBilling\Validation\Api\RequiredParams;
 
 class Guest extends \FOSSBilling\Api\AbstractApi
 {
+    /** Theme-facing preferences, without availability checks or private configuration. */
+    public function presentation($data): array
+    {
+        return $this->getService()->getPresentation();
+    }
+
     /**
      * Check an SLD against active registration TLDs, subject to the code-owned limit.
      * Uses each TLD's assigned registrar, like servicedomain/check.

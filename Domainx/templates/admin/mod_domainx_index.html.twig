@@ -1,0 +1,133 @@
+{% extends 'layout_default.html.twig' %}
+{% set active_menu = 'extensions' %}
+{% block meta_title %}{{ 'DomainX search results'|trans }}{% endblock %}
+{% block content %}
+{% set presentation = admin.domainx_presentation_get %}
+<form id="domainx-presentation">
+    <div class="card mb-3">
+        <div class="card-header"><h3 class="card-title">{{ 'DomainX search results'|trans }}</h3></div>
+        <div class="card-body">
+            <p>{{ 'Drag the handle or use the arrow buttons to reorder active TLDs enabled for registration. The explicitly searched suffix always appears first. Highlights do not change the order or prices.'|trans }}</p>
+            <button type="button" class="btn btn-outline-secondary" id="domainx-reset">{{ 'Reset order to alphabetical'|trans }}</button>
+        </div>
+        <div class="table-responsive">
+            <table class="table card-table table-vcenter">
+                <thead><tr><th>{{ 'Order'|trans }}</th><th>{{ 'TLD'|trans }}</th><th>{{ 'Highlight'|trans }}</th></tr></thead>
+                <tbody id="domainx-tlds">
+                {% for tld in presentation.tlds %}
+                    <tr data-tld="{{ tld }}">
+                        <td class="text-nowrap">
+                            <button type="button" class="btn btn-sm btn-ghost-secondary" draggable="true" data-drag aria-label="{{ 'Drag to reorder'|trans }} {{ tld }}" title="{{ 'Drag to reorder'|trans }}">&#9776;</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-move="up" aria-label="{{ 'Move up'|trans }} {{ tld }}">&#8593;</button>
+                            <button type="button" class="btn btn-sm btn-outline-secondary" data-move="down" aria-label="{{ 'Move down'|trans }} {{ tld }}">&#8595;</button>
+                        </td>
+                        <th scope="row">{{ tld }}</th>
+                        <td><select class="form-select w-auto" aria-label="{{ 'Highlight'|trans }} {{ tld }}">
+                            <option value="">{{ 'None'|trans }}</option>
+                            <option value="hot" {% if presentation.highlights[tld]|default('') == 'hot' %}selected{% endif %}>{{ 'Hot'|trans }}</option>
+                            <option value="top" {% if presentation.highlights[tld]|default('') == 'top' %}selected{% endif %}>{{ 'Top'|trans }}</option>
+                        </select></td>
+                    </tr>
+                {% else %}
+                    <tr><td colspan="3">{{ 'No TLDs are enabled for registration.'|trans }}</td></tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+    <div class="card">
+        <div class="card-header"><h3 class="card-title">{{ 'Pricing strips'|trans }}</h3></div>
+        <div class="card-body">
+            <p class="text-muted">{{ 'Choose the order and number of TLD prices shown in Tide. A count of 0 hides the prices and keeps the All extensions link.'|trans }}</p>
+            {% for strip, label in {'homepage': 'Homepage price strip', 'order': 'Domain order price strip'} %}
+                <div class="row g-3 mb-3">
+                    <div class="col-md-7">
+                        <label class="form-label" for="{{ strip }}-order">{{ label|trans }}</label>
+                        <select class="form-select" id="{{ strip }}-order" name="{{ strip }}_strip_order">
+                            <option value="alphabetical" {% if presentation[strip ~ '_strip_order'] == 'alphabetical' %}selected{% endif %}>{{ 'Alphabetical'|trans }}</option>
+                            <option value="search" {% if presentation[strip ~ '_strip_order'] == 'search' %}selected{% endif %}>{{ 'Follow search result order'|trans }}</option>
+                        </select>
+                    </div>
+                    <div class="col-md-5">
+                        <label class="form-label" for="{{ strip }}-count">{{ 'Number of TLDs (0–100)'|trans }}</label>
+                        <input class="form-control" id="{{ strip }}-count" type="number" name="{{ strip }}_strip_count" min="0" max="100" required value="{{ presentation[strip ~ '_strip_count'] }}">
+                    </div>
+                </div>
+            {% endfor %}
+        </div>
+        <div class="card-footer d-flex align-items-center gap-3">
+            <button type="submit" class="btn btn-primary">{{ 'Save'|trans }}</button>
+            <span id="domainx-save-status" role="status"></span>
+        </div>
+    </div>
+</form>
+{% endblock %}
+{% block js %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+    const form = document.getElementById('domainx-presentation');
+    const body = document.getElementById('domainx-tlds');
+    const status = document.getElementById('domainx-save-status');
+    const rows = () => Array.from(body.querySelectorAll('[data-tld]'));
+    let dragged = null;
+    const changed = () => { status.textContent = "{{ 'Unsaved changes'|trans|e('js') }}"; };
+    form.addEventListener('change', changed);
+    body.addEventListener('click', function (event) {
+        const button = event.target.closest('[data-move]');
+        if (!button) return;
+        const row = button.closest('[data-tld]');
+        const sibling = button.dataset.move === 'up' ? row.previousElementSibling : row.nextElementSibling;
+        if (!sibling) return;
+        body.insertBefore(row, button.dataset.move === 'up' ? sibling : sibling.nextElementSibling);
+        button.focus();
+        changed();
+    });
+    body.addEventListener('dragstart', function (event) {
+        if (!event.target.closest('[data-drag]')) return;
+        dragged = event.target.closest('[data-tld]');
+        event.dataTransfer.effectAllowed = 'move';
+        event.dataTransfer.setData('text/plain', dragged.dataset.tld);
+    });
+    body.addEventListener('dragover', function (event) {
+        const row = event.target.closest('[data-tld]');
+        if (!dragged || !row || row === dragged) return;
+        event.preventDefault();
+        event.dataTransfer.dropEffect = 'move';
+        const rect = row.getBoundingClientRect();
+        body.insertBefore(dragged, event.clientY < rect.top + rect.height / 2 ? row : row.nextElementSibling);
+    });
+    body.addEventListener('drop', function (event) {
+        if (!dragged) return;
+        event.preventDefault();
+        dragged = null;
+        changed();
+    });
+    body.addEventListener('dragend', function () { dragged = null; changed(); });
+    document.getElementById('domainx-reset').addEventListener('click', function () {
+        rows().sort((a, b) => a.dataset.tld < b.dataset.tld ? -1 : a.dataset.tld > b.dataset.tld ? 1 : 0).forEach(row => body.appendChild(row));
+        changed();
+    });
+    form.addEventListener('submit', function (event) {
+        event.preventDefault();
+        const settings = {tld_order: [], highlights: {}};
+        rows().forEach(function (row) {
+            settings.tld_order.push(row.dataset.tld);
+            settings.highlights[row.dataset.tld] = row.querySelector('select').value;
+        });
+        ['homepage', 'order'].forEach(function (strip) {
+            settings[strip + '_strip_order'] = form.elements[strip + '_strip_order'].value;
+            settings[strip + '_strip_count'] = form.elements[strip + '_strip_count'].value;
+        });
+        const save = form.querySelector('[type="submit"]');
+        save.disabled = true;
+        FOSSBilling.api.admin.post('domainx/presentation_save', {settings: JSON.stringify(settings)}, function () {
+            save.disabled = false;
+            status.textContent = "{{ 'Saved'|trans|e('js') }}";
+        }, function (error) {
+            save.disabled = false;
+            status.textContent = error?.message || "{{ 'Could not save settings'|trans|e('js') }}";
+        });
+    });
+});
+</script>
+{% endblock %}

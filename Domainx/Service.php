@@ -202,6 +202,92 @@ class Service implements InjectionAwareInterface
         return $this->di;
     }
 
+    public function getModulePermissions(): array
+    {
+        return ['manage_settings' => true];
+    }
+
+    /** Public presentation preferences only; never expose the full module configuration. */
+    public function getPresentation(): array
+    {
+        $config = $this->di['mod_service']('extension')->getConfig('mod_domainx');
+        $order = array_values(array_unique(array_filter(is_array($config['tld_order'] ?? null) ? $config['tld_order'] : [], 'is_string')));
+        $highlights = array_filter(is_array($config['tld_highlights'] ?? null) ? $config['tld_highlights'] : [], static fn ($value): bool => in_array($value, ['hot', 'top'], true));
+        $presentation = [
+            'tld_order' => $order,
+            'positions' => array_flip($order),
+            'highlights' => $highlights,
+        ];
+        foreach (['homepage', 'order'] as $strip) {
+            $presentation[$strip . '_strip_order'] = ($config[$strip . '_strip_order'] ?? '') === 'search' ? 'search' : 'alphabetical';
+            $presentation[$strip . '_strip_count'] = max(0, min(100, (int) ($config[$strip . '_strip_count'] ?? 5)));
+        }
+
+        return $presentation;
+    }
+
+    public function getAdminPresentation(): array
+    {
+        $this->di['mod_service']('extension')->hasManagePermission('mod_domainx');
+        $presentation = $this->getPresentation();
+        $presentation['tlds'] = array_map(static fn ($tld): string => (string) $tld->tld, $this->sortSearchTlds($this->registrationTlds(), $presentation));
+
+        return $presentation;
+    }
+
+    public function savePresentation(array $data): bool
+    {
+        $extension = $this->di['mod_service']('extension');
+        $extension->hasManagePermission('mod_domainx');
+        $known = array_fill_keys(array_map(static fn ($tld): string => (string) $tld->tld, $this->registrationTlds()), true);
+        if (!isset($data['tld_order'], $data['highlights']) || !is_array($data['tld_order']) || !is_array($data['highlights'])) {
+            throw new \FOSSBilling\InformationException('Invalid TLD presentation settings.');
+        }
+        $order = [];
+        foreach ($data['tld_order'] as $tld) {
+            if (!is_string($tld) || !isset($known[$tld]) || isset($order[$tld])) {
+                throw new \FOSSBilling\InformationException('Invalid or duplicate TLD in search order. Reload the page and try again.');
+            }
+            $order[$tld] = true;
+        }
+        $highlights = [];
+        foreach ($data['highlights'] as $tld => $highlight) {
+            if (!isset($known[$tld]) || !in_array($highlight, ['', 'hot', 'top'], true)) {
+                throw new \FOSSBilling\InformationException('Invalid TLD highlight.');
+            }
+            if ($highlight !== '') {
+                $highlights[$tld] = $highlight;
+            }
+        }
+        $settings = ['tld_order' => array_keys($order), 'tld_highlights' => $highlights];
+        foreach (['homepage', 'order'] as $strip) {
+            $sort = $data[$strip . '_strip_order'] ?? null;
+            $count = $data[$strip . '_strip_count'] ?? null;
+            if (!in_array($sort, ['alphabetical', 'search'], true) || (!is_int($count) && !is_string($count))
+                || filter_var($count, FILTER_VALIDATE_INT, ['options' => ['min_range' => 0, 'max_range' => 100]]) === false) {
+                throw new \FOSSBilling\InformationException('Choose a valid strip order and a count between 0 and 100.');
+            }
+            $settings[$strip . '_strip_order'] = $sort;
+            $settings[$strip . '_strip_count'] = (int) $count;
+        }
+
+        return $extension->setConfig(array_replace($extension->getConfig('mod_domainx'), $settings, ['ext' => 'mod_domainx']));
+    }
+
+    private function registrationTlds(): array
+    {
+        return $this->di['db']->find('Tld', 'active = 1 AND allow_register = 1 ORDER BY tld ASC', []);
+    }
+
+    private function sortSearchTlds(array $tlds, array $presentation): array
+    {
+        $positions = $presentation['positions'];
+        usort($tlds, static fn ($a, $b): int => (($positions[$a->tld] ?? PHP_INT_MAX) <=> ($positions[$b->tld] ?? PHP_INT_MAX))
+            ?: strcmp((string) $a->tld, (string) $b->tld));
+
+        return $tlds;
+    }
+
     /**
      * Availability uses the core service, not the extended-operation allowlist.
      * Errors are unknown (available = null), never mistaken for unavailable.
@@ -223,7 +309,8 @@ class Service implements InjectionAwareInterface
         $sld = strtolower($ascii);
 
         $service = $this->di['mod_service']('servicedomain');
-        $tlds = $this->di['db']->find('Tld', 'active = 1 AND allow_register = 1 ORDER BY tld ASC', []);
+        $presentation = $this->getPresentation();
+        $tlds = $this->sortSearchTlds($this->registrationTlds(), $presentation);
         // Prioritize the requested suffix before any cache/registrar checks.
         $results = [];
         if ($requestedTld !== '') {
@@ -253,6 +340,7 @@ class Service implements InjectionAwareInterface
                     'domain' => $sld . $requestedTld,
                     'available' => null,
                     'cached' => false,
+                    'highlight' => null,
                     'error' => __trans('This TLD is not available for registration.'),
                 ];
             }
@@ -284,12 +372,14 @@ class Service implements InjectionAwareInterface
                 'domain' => $sld . $tld->tld,
                 'available' => null,
                 'cached' => false,
+                'highlight' => null,
                 'error' => null,
             ];
 
             try {
                 $tld->tld = $service->normalizeTld((string) $tld->tld);
                 $result['tld'] = $tld->tld;
+                $result['highlight'] = $presentation['highlights'][$tld->tld] ?? null;
                 $result['domain'] = $sld . $tld->tld;
                 $item = null;
                 if ($cache !== null) {
@@ -1014,3 +1104,4 @@ class Service implements InjectionAwareInterface
         }
     }
 }
+
