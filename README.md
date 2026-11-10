@@ -19,22 +19,34 @@ DomainX exposes each feature only when the assigned registrar adapter supports i
 
 ## Installation
 
-Install and configure the required EPP registrar and Tide theme first.
+Install and configure the EPP registrar and Tide first.
 
 ```bash
-git clone https://github.com/getnamingo/fossbilling-domainx
-mv fossbilling-domainx/Domainx /var/www/modules/
-mv fossbilling-domainx/Domains /var/www/modules/
+TMP=$(mktemp -d)
+git clone --depth 1 https://github.com/getnamingo/fossbilling-domainx.git "$TMP/domainx"
+mkdir -p /var/www/modules
+cp -a "$TMP/domainx/Domainx" "$TMP/domainx/Domains" /var/www/modules/
+chown -R www-data:www-data /var/www/modules/{Domainx,Domains}
+chmod -R u=rwX,go=rX /var/www/modules/{Domainx,Domains}
+rm -rf "$TMP"
 ```
 
 - Go to Extensions > Overview in the admin panel and activate "DomainX" and "Domain Prices".
-- Ensure Tide v1.2.15 or newer is the active client theme.
+- Ensure Tide v1.2.16 or newer is the active client theme.
+- Configure ordering, highlights and pricing strips under Extensions → DomainX.
 
 ## Upgrade
 
-Before upgrading, make a database backup.
+Back up the existing module directories and database first.
 
-To upgrade, replace the existing module files with the latest version and open the FOSSBilling admin panel. The module update routine will ensure that the required database tables exist.
+```
+TMP=$(mktemp -d)
+git clone --depth 1 https://github.com/getnamingo/fossbilling-domainx.git "$TMP/domainx"
+cp -a "$TMP/domainx/Domainx" "$TMP/domainx/Domains" /var/www/modules/
+chown -R www-data:www-data /var/www/modules/{Domainx,Domains}
+chmod -R u=rwX,go=rX /var/www/modules/{Domainx,Domains}
+rm -rf "$TMP"
+```
 
 ## Usage
 
